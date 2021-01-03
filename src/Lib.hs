@@ -3,9 +3,9 @@ module Lib (readExpr) where
 import Control.Monad ( liftM )
 
 import Text.Parsec.Prim
-import Text.Parsec.Char
+import Text.Parsec.Char hiding (spaces)
 import Text.Parsec.String ( Parser )
-import Text.Parsec.Combinator (many1, notFollowedBy)
+import Text.Parsec.Combinator (many1, notFollowedBy, sepBy, endBy)
 import Numeric (readHex, readOct, readFloat)
 
 -- parsers will convert input into this data structure such that traversals become easier
@@ -17,7 +17,7 @@ data LispVal
     | String String
     | Bool Bool
     | Character Char
-    | Float Float
+    | Float Double 
     deriving (Show)
     
 -- define a parser that recognizes one of the symbols allowed in scheme identifiers
@@ -63,8 +63,8 @@ parseAtom = do
                 _    -> Atom atom
 
 -- parse Number
---parseNumber :: Parser LispVal
---parseNumber = liftM (Number . read) $ many1 digit
+parseNumber :: Parser LispVal
+parseNumber = parseHex <|> parseOct <|> parseBin <|> parseDecimal1 <|> parseDecimal2
 
 parseHex :: Parser LispVal
 parseHex = do 
@@ -97,7 +97,18 @@ bin2dig' digint "" = digint
 bin2dig' digint (x:xs) = let old = 2 * digint + (if x == '0' then 0 else 1) in
                          bin2dig' old xs
 
+-- two way to express decimal is scheme one with #d as prefix and another 
+-- like regular number with no prefix or anything.
+parseDecimal1 :: Parser LispVal
+parseDecimal1 = do
+    string "#d"
+    val <- many1 digit 
+    return $ Number . read $ val
 
+parseDecimal2 :: Parser LispVal
+parseDecimal2 = many1 digit >>= return . Number . read 
+
+-- parse chracter 
 parseCharacter :: Parser LispVal
 parseCharacter = do
     string "#\\"
@@ -115,15 +126,35 @@ parseFloat = do
     ad <- many1 digit
     return $ Float $ fst . head . readFloat $ (bd ++ "." ++ ad) 
 
+parseList :: Parser LispVal
+parseList = List <$> sepBy parseExpr spaces
+
+parseDottedList :: Parser LispVal
+parseDottedList = do
+    head <- endBy parseExpr spaces
+    tail <- char '.' >> spaces >> parseExpr
+    return $ DottedList head tail 
+    
+
+parseQuoted :: Parser LispVal
+parseQuoted = do
+    char '\''
+    val <- parseExpr
+    return $ List [Atom "quote", val]
+
 
 -- parser choices
 parseExpr :: Parser LispVal
 parseExpr = parseAtom 
          <|> parseString
-         <|> parseFloat
-         <|> parseCharacter
-         <|> parseHex
-         <|> parseOct  
+         <|> try parseFloat
+         <|> parseNumber
+         <|> parseCharacter 
+         <|> do char '('
+                x <- try parseList <|> parseDottedList
+                char ')'
+                return x
+                 
 
 -- define a function to call our parser and handle any possible errors
 readExpr :: String -> String
@@ -176,4 +207,10 @@ parserNumber1 = do
 
 parseNumber2 :: Parser LispVal
 parseNumber2 = many1 digit >>= return . Number . read
+
+
+
+
+
+
 
