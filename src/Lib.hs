@@ -1,4 +1,4 @@
-module Lib (readExpr) where
+module Lib (readExpr, eval) where
 
 import Control.Monad ( liftM )
 
@@ -17,8 +17,7 @@ data LispVal
     | String String
     | Bool Bool
     | Character Char
-    | Float Double 
-    deriving (Show)
+    | Float Double
     
 -- define a parser that recognizes one of the symbols allowed in scheme identifiers
 -- parser takes in a String as an input and outputs a value and rest of the unparsed string
@@ -35,7 +34,7 @@ spaces = skipMany space
 parseString :: Parser LispVal
 parseString = do
     char '"'
-    x <- many (noneOf "\"")
+    x <- many $ escapedChars <|> noneOf "\"\\"
     char '"'
     return $ String x
 
@@ -44,8 +43,7 @@ escapedChars :: Parser Char
 escapedChars = do 
     char '\\'
     x <- oneOf "\\\"nrt"
-    return $ temp x where
-        temp x = case x of
+    return $ case x of
             '\\' -> x
             '"'  -> x
             'n'  -> '\n'
@@ -55,12 +53,21 @@ escapedChars = do
 -- parse Atom
 parseAtom :: Parser LispVal
 parseAtom = do
-    char '#'
-    atom <- many (letter <|> digit <|> symbol)
+    first <- letter <|> symbol
+    rest <- many (letter <|> digit <|> symbol)
+    let atom = first:rest
     return $ case atom of 
                 "t" -> Bool True
                 "f" -> Bool False
                 _    -> Atom atom
+
+parseStringq :: Parser LispVal
+parseStringq = do
+    string "\""
+    x <- many1 letter
+    string "\""
+    return $ String x
+
 
 -- parse Number
 parseNumber :: Parser LispVal
@@ -145,23 +152,53 @@ parseQuoted = do
 
 -- parser choices
 parseExpr :: Parser LispVal
-parseExpr = parseAtom 
-         <|> parseString
+parseExpr = try parseAtom 
+         <|> try parseString
+         <|> parseStringq
          <|> try parseFloat
-         <|> parseNumber
-         <|> parseCharacter 
+         <|> try parseNumber
+         <|> parseQuoted
+         <|> try parseCharacter 
          <|> do char '('
                 x <- try parseList <|> parseDottedList
                 char ')'
                 return x
                  
 
--- define a function to call our parser and handle any possible errors
-readExpr :: String -> String
-readExpr input = case parse parseExpr "lisp" input of
-                    Left err -> "No match: " ++ show err
-                    Right val -> "Found value! -> " ++ show val
+showVal :: LispVal -> String
+showVal (String contents) = "\"" ++ show contents ++ "\""
+showVal (Atom name)       = name
+showVal (Number contents) = show contents
+showVal (Bool True)       = "#t"
+showVal (Bool False)      = "#f"
+showVal (List contents)   = "(" ++ unwordsList contents ++ ")"
+showVal (DottedList head tail) = "(" ++ unwordsList head ++ " . " ++ showVal tail ++ ")"
 
+
+unwordsList :: [LispVal] -> String
+unwordsList = unwords . map showVal 
+
+instance Show LispVal where show = showVal
+
+
+
+-- define a function to call our parser and handle any possible errors
+readExpr :: String -> LispVal
+readExpr input = case parse parseExpr "lisp" input of
+                    Left err -> String $ "No match: " ++ show err
+                    Right val -> val
+
+
+-- EVALUATOR
+eval :: LispVal -> LispVal
+eval val@(String _) = val
+eval val@(Number _) = val
+eval val@(Bool _)   = val 
+eval (List [Atom "quote", val]) = val
+
+
+
+{- EXPERIMENT SECTION -}
 
 -- These are test functions that I've written to clear out certain confusion
 -- or be sure about certain ideas. It may be deleted in future updates. Thanks!
@@ -207,10 +244,3 @@ parserNumber1 = do
 
 parseNumber2 :: Parser LispVal
 parseNumber2 = many1 digit >>= return . Number . read
-
-
-
-
-
-
-

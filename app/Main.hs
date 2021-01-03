@@ -1,8 +1,8 @@
 module Main where
 
-import Lib ( readExpr )
+import System.Environment
+
+import Lib ( readExpr, eval )
 
 main :: IO ()
-main = do
-    input <- getLine
-    print $ readExpr input
+main = getArgs >>= print . eval . readExpr . head
